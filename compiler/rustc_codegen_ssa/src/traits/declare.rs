@@ -62,4 +62,11 @@ pub trait PreDefineMethods<'tcx>: BackendTypes {
         visibility: Visibility,
         symbol_name: &str,
     );
+    fn predefine_fn_zsf(
+        &self,
+        instance: Instance<'tcx>,
+        linkage: Linkage,
+        visibility: Visibility,
+        symbol_name: &str,
+    );
 }
