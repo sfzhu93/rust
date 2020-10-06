@@ -185,11 +185,15 @@ pub fn unsize_thin_ptr<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
     match (src_ty.kind(), dst_ty.kind()) {
         (&ty::Ref(_, a, _), &ty::Ref(_, b, _) | &ty::RawPtr(ty::TypeAndMut { ty: b, .. }))
         | (&ty::RawPtr(ty::TypeAndMut { ty: a, .. }), &ty::RawPtr(ty::TypeAndMut { ty: b, .. })) => {
+            debug!("unsize_thin_ptr: ref => ref start");
             assert!(bx.cx().type_is_sized(a));
             let ptr_ty = bx.cx().type_ptr_to(bx.cx().backend_type(bx.cx().layout_of(b)));
-            (bx.pointercast(src, ptr_ty), unsized_info(bx.cx(), a, b, None))
+            let ret = (bx.pointercast(src, ptr_ty), unsized_info(bx.cx(), a, b, None));
+            debug!("unsize_thin_ptr: ref => ref end");
+            ret
         }
         (&ty::Adt(def_a, _), &ty::Adt(def_b, _)) => {
+            debug!("unsize_thin_ptr: adt => adt");
             assert_eq!(def_a, def_b);
 
             let src_layout = bx.cx().layout_of(src_ty);

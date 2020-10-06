@@ -171,6 +171,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         mut bx: Bx,
         rvalue: &mir::Rvalue<'tcx>,
     ) -> (Bx, OperandRef<'tcx, Bx::Value>) {
+        debug!("codegen_rvalue_operand: start");
         assert!(
             self.rvalue_creates_operand(rvalue, DUMMY_SP),
             "cannot codegen {:?} to operand",
@@ -239,6 +240,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                                 OperandValue::Pair(lldata, llextra)
                             }
                             OperandValue::Immediate(lldata) => {
+                                //zsf: here unsize_thin_ptr: &Rectangle => &dyn Shape
                                 // "standard" unsize
                                 let (lldata, llextra) = base::unsize_thin_ptr(
                                     &mut bx,
@@ -395,6 +397,8 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                         OperandValue::Immediate(newval)
                     }
                 };
+                debug!("codegen_rvalue_operand: end");
+
                 (bx, OperandRef { val, layout: cast })
             }
 

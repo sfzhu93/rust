@@ -40,6 +40,49 @@ impl PreDefineMethods<'tcx> for CodegenCx<'ll, 'tcx> {
         self.instances.borrow_mut().insert(instance, g);
     }
 
+    fn predefine_fn_zsf(
+        &self,
+        instance: Instance<'tcx>,
+        linkage: Linkage,
+        visibility: Visibility,
+        symbol_name: &str,
+    ) {
+        let symbol_name_zsf = symbol_name.replace("8add_test17", "12add_test_zsf17");
+
+        let fn_abi = FnAbi::of_instance_zsf(self, instance, &[]);
+        debug!("predefine_fn_zsf: fn_abi={:?}", fn_abi);
+        let lldecl = self.declare_fn(&symbol_name_zsf, &fn_abi);
+        unsafe { llvm::LLVMRustSetLinkage(lldecl, base::linkage_to_llvm(linkage)) };
+        let attrs = self.tcx.codegen_fn_attrs(instance.def_id());
+        base::set_link_section(lldecl, &attrs);
+        if linkage == Linkage::LinkOnceODR || linkage == Linkage::WeakODR {
+            llvm::SetUniqueComdat(self.llmod, lldecl);
+        }
+
+        // If we're compiling the compiler-builtins crate, e.g., the equivalent of
+        // compiler-rt, then we want to implicitly compile everything with hidden
+        // visibility as we're going to link this object all over the place but
+        // don't want the symbols to get exported.
+        if linkage != Linkage::Internal
+            && linkage != Linkage::Private
+            && self.tcx.is_compiler_builtins(LOCAL_CRATE)
+        {
+            unsafe {
+                llvm::LLVMRustSetVisibility(lldecl, llvm::Visibility::Hidden);
+            }
+        } else {
+            unsafe {
+                llvm::LLVMRustSetVisibility(lldecl, base::visibility_to_llvm(visibility));
+            }
+        }
+
+        debug!("predefine_fn_zsf: instance = {:?}", instance);
+
+        attributes::from_fn_attrs(self, lldecl, instance);
+
+        self.instances.borrow_mut().insert(instance, lldecl);
+    }
+
     fn predefine_fn(
         &self,
         instance: Instance<'tcx>,
@@ -48,6 +91,10 @@ impl PreDefineMethods<'tcx> for CodegenCx<'ll, 'tcx> {
         symbol_name: &str,
     ) {
         assert!(!instance.substs.needs_infer());
+        if symbol_name.contains("8add_test17") {
+            debug!("handle case here");
+            self.predefine_fn_zsf(instance, linkage, visibility, symbol_name);
+        }
 
         let fn_abi = FnAbi::of_instance(self, instance, &[]);
         let lldecl = self.declare_fn(symbol_name, &fn_abi);

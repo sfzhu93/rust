@@ -2,7 +2,7 @@ use crate::ich::StableHashingContext;
 use crate::middle::codegen_fn_attrs::CodegenFnAttrFlags;
 use crate::mir::{GeneratorLayout, GeneratorSavedLocal};
 use crate::ty::subst::Subst;
-use crate::ty::{self, subst::SubstsRef, ReprOptions, Ty, TyCtxt, TypeFoldable};
+use crate::ty::{self, subst::SubstsRef, ReprOptions, Ty, TyCtxt, TypeFoldable, PolyFnSig, TypeAndMut};
 
 use rustc_ast::{self as ast, IntTy, UintTy};
 use rustc_attr as attr;
@@ -26,6 +26,7 @@ use std::iter;
 use std::mem;
 use std::num::NonZeroUsize;
 use std::ops::Bound;
+use rustc_hir::Mutability;
 
 pub trait IntegerExt {
     fn to_ty<'tcx>(&self, tcx: TyCtxt<'tcx>, signed: bool) -> Ty<'tcx>;
@@ -2336,9 +2337,21 @@ impl<'tcx> ty::Instance<'tcx> {
                 // `src/test/ui/polymorphization/normalized_sig_types.rs`), and codegen not keeping
                 // track of a polymorphization `ParamEnv` to allow normalizing later.
                 let mut sig = match *ty.kind() {
-                    ty::FnDef(def_id, substs) => tcx
-                        .normalize_erasing_regions(tcx.param_env(def_id), tcx.fn_sig(def_id))
-                        .subst(tcx, substs),
+                    ty::FnDef(def_id, substs) => {
+                        /*fn print_type_of<T>(_: &T) {
+                            debug!("{}", std::any::type_name::<T>())
+                        }*/
+                        let fn_sig_ret = tcx.fn_sig(def_id);
+                        debug!("fn_sig_for_fn_abi: fn_sig_ret={:?}", fn_sig_ret);
+                        let t = tcx
+                        .normalize_erasing_regions(tcx.param_env(def_id), fn_sig_ret);
+                        debug!("fn_sig_for_fn_abi: t={:?}", t);
+                        //print_type_of(t);
+                        let ret = t.subst(tcx, substs);
+                        debug!("fn_sig_for_fn_abi: ret={:?}", ret);
+                        //print_type_of(ret);
+                        ret
+                    },
                     _ => unreachable!(),
                 };
 
@@ -2419,6 +2432,7 @@ where
     /// NB: that includes virtual calls, which are represented by "direct calls"
     /// to a `InstanceDef::Virtual` instance (of `<dyn Trait as Trait>::fn`).
     fn of_instance(cx: &C, instance: ty::Instance<'tcx>, extra_args: &[Ty<'tcx>]) -> Self;
+    fn of_instance_zsf(cx: &C, instance: ty::Instance<'tcx>, extra_args: &[Ty<'tcx>]) -> Self;
 
     fn new_internal(
         cx: &C,
@@ -2491,9 +2505,34 @@ where
         })
     }
 
-    fn of_instance(cx: &C, instance: ty::Instance<'tcx>, extra_args: &[Ty<'tcx>]) -> Self {
+    fn of_instance_zsf(cx: &C, instance: ty::Instance<'tcx>, extra_args: &[Ty<'tcx>]) -> Self {
         let sig = instance.fn_sig_for_fn_abi(cx.tcx());
-
+        debug!("of_instance: sig.inputs()={:?}", sig.inputs()); //TODO: find out how to use binders correctly
+        fn wrap_with_pointer<'a>(tcx: TyCtxt<'a>, sig: PolyFnSig<'a>) -> PolyFnSig<'a> {
+            let param_list = sig.inputs_and_output();
+            debug!("of_instance: wrap_with_pointer: {:?}", param_list);
+            sig.map_bound(|inner| {
+                let ret_list = inner.inputs_and_output.iter().map(|x|{
+                    debug!("of_instance: wrap_with_pointer: map_bound: {:?}", x);
+                    match x.kind() {
+                        ty::Int(..) => {
+                            tcx.mk_ty(ty::RawPtr(TypeAndMut { ty: &x, mutbl: Mutability::Not }))
+                        },
+                        _ => x
+                    }
+                });
+                let mut ret = inner;
+                let len = ret_list.len();
+                let type_to_ins = tcx.mk_imm_ptr(
+                    tcx.mk_array(tcx.mk_ty(ty::Int(ast::IntTy::I64)), 3));
+                let new_list = ret_list.clone().take(len-1)
+                    .chain(iter::once(type_to_ins))
+                    .chain(ret_list.clone().skip(len-1));
+                ret.inputs_and_output = tcx.mk_type_list(new_list);
+                ret
+            })
+        }
+        let sig = wrap_with_pointer(cx.tcx(), sig);
         let caller_location = if instance.def.requires_caller_location(cx.tcx()) {
             Some(cx.tcx().caller_location_ty())
         } else {
@@ -2541,6 +2580,72 @@ where
 
                     fat_pointer_layout.ty
                 };
+
+                // we now have a type like `*mut RcBox<dyn Trait>`
+                // change its layout to that of `*mut ()`, a thin pointer, but keep the same type
+                // this is understood as a special case elsewhere in the compiler
+                let unit_pointer_ty = cx.tcx().mk_mut_ptr(cx.tcx().mk_unit());
+                layout = cx.layout_of(unit_pointer_ty);
+                layout.ty = fat_pointer_ty;
+            }
+            ArgAbi::new(layout)
+        })
+    }
+
+    fn of_instance(cx: &C, instance: ty::Instance<'tcx>, extra_args: &[Ty<'tcx>]) -> Self {
+        let sig = instance.fn_sig_for_fn_abi(cx.tcx());
+        let caller_location = if instance.def.requires_caller_location(cx.tcx()) {
+            Some(cx.tcx().caller_location_ty())
+        } else {
+            None
+        };
+
+        let attrs = cx.tcx().codegen_fn_attrs(instance.def_id()).flags;
+
+        call::FnAbi::new_internal(cx, sig, extra_args, caller_location, attrs, |ty, arg_idx| {
+            let mut layout = cx.layout_of(ty);
+            // Don't pass the vtable, it's not an argument of the virtual fn.
+            // Instead, pass just the data pointer, but give it the type `*const/mut dyn Trait`
+            // or `&/&mut dyn Trait` because this is special-cased elsewhere in codegen
+            if let (ty::InstanceDef::Virtual(..), Some(0)) = (&instance.def, arg_idx) {
+                debug!("new_internal: handling virtual call parameter: {:?}", arg_idx);
+                //caught
+                let fat_pointer_ty = if layout.is_unsized() {
+                    // unsized `self` is passed as a pointer to `self`
+                    // FIXME (mikeyhew) change this to use &own if it is ever added to the language
+                    debug!("new_internal: handling virtual call parameter: true branch");
+                    cx.tcx().mk_mut_ptr(layout.ty)
+                } else {
+                    debug!("new_internal: handling virtual call parameter: false branch");
+                    match layout.abi {
+                        Abi::ScalarPair(..) => (),
+                        _ => bug!("receiver type has unsupported layout: {:?}", layout),
+                    }
+
+                    // In the case of Rc<Self>, we need to explicitly pass a *mut RcBox<Self>
+                    // with a Scalar (not ScalarPair) ABI. This is a hack that is understood
+                    // elsewhere in the compiler as a method on a `dyn Trait`.
+                    // To get the type `*mut RcBox<Self>`, we just keep unwrapping newtypes until we
+                    // get a built-in pointer type
+                    let mut fat_pointer_layout = layout;
+                    'descend_newtypes: while !fat_pointer_layout.ty.is_unsafe_ptr()
+                        && !fat_pointer_layout.ty.is_region_ptr()
+                    {
+                        for i in 0..fat_pointer_layout.fields.count() {
+                            let field_layout = fat_pointer_layout.field(cx, i);
+
+                            if !field_layout.is_zst() {
+                                fat_pointer_layout = field_layout;
+                                continue 'descend_newtypes;
+                            }
+                        }
+
+                        bug!("receiver has no non-zero-sized fields {:?}", fat_pointer_layout);
+                    }
+
+                    fat_pointer_layout.ty
+                };
+                debug!("new_internal: handling virtual call parameter: fat_pointer_ty={:?}", fat_pointer_ty);
 
                 // we now have a type like `*mut RcBox<dyn Trait>`
                 // change its layout to that of `*mut ()`, a thin pointer, but keep the same type

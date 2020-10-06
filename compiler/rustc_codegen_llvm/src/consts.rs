@@ -175,17 +175,24 @@ impl CodegenCx<'ll, 'tcx> {
         align: Align,
         kind: Option<&str>,
     ) -> &'ll Value {
+        debug!("static_addr_of_mut: start");
         unsafe {
             let gv = match kind {
                 Some(kind) if !self.tcx.sess.fewer_names() => {
+                    debug!("static_addr_of_mut: 1");
                     let name = self.generate_local_symbol_name(kind);
+                    debug!("static_addr_of_mut: 2");
                     let gv = self.define_global(&name[..], self.val_ty(cv)).unwrap_or_else(|| {
                         bug!("symbol `{}` is already defined", name);
                     });
+                    debug!("static_addr_of_mut: 3");
                     llvm::LLVMRustSetLinkage(gv, llvm::Linkage::PrivateLinkage);
+                    debug!("static_addr_of_mut: 4");
                     gv
                 }
-                _ => self.define_private_global(self.val_ty(cv)),
+                _ => {
+                    self.define_private_global(self.val_ty(cv))
+                },
             };
             llvm::LLVMSetInitializer(gv, cv);
             set_global_alignment(&self, gv, align);
@@ -326,6 +333,7 @@ impl CodegenCx<'ll, 'tcx> {
 impl StaticMethods for CodegenCx<'ll, 'tcx> {
     fn static_addr_of(&self, cv: &'ll Value, align: Align, kind: Option<&str>) -> &'ll Value {
         if let Some(&gv) = self.const_globals.borrow().get(&cv) {
+            debug!("static_addr_of: true branch");
             unsafe {
                 // Upgrade the alignment in cases where the same constant is used with different
                 // alignment requirements
@@ -336,11 +344,15 @@ impl StaticMethods for CodegenCx<'ll, 'tcx> {
             }
             return gv;
         }
+        debug!("static_addr_of: false branch");
         let gv = self.static_addr_of_mut(cv, align, kind);
+        debug!("static_addr_of: 1");
         unsafe {
             llvm::LLVMSetGlobalConstant(gv, True);
         }
+        debug!("static_addr_of: 2");
         self.const_globals.borrow_mut().insert(cv, gv);
+        debug!("static_addr_of: 3");
         gv
     }
 

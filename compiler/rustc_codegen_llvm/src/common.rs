@@ -294,9 +294,11 @@ impl ConstMethods<'tcx> for CodegenCx<'ll, 'tcx> {
             let llval = self.const_usize(alloc.align.bytes());
             unsafe { llvm::LLVMConstIntToPtr(llval, llty) }
         } else {
+            debug!("from_const_alloc: 1");
             let init = const_alloc_to_llvm(self, alloc);
+            debug!("from_const_alloc: 2");
             let base_addr = self.static_addr_of(init, alloc.align, None);
-
+            debug!("from_const_alloc: 3");
             let llval = unsafe {
                 llvm::LLVMConstInBoundsGEP(
                     self.const_bitcast(base_addr, self.type_i8p()),
@@ -304,6 +306,7 @@ impl ConstMethods<'tcx> for CodegenCx<'ll, 'tcx> {
                     1,
                 )
             };
+            debug!("from_const_alloc: 4");
             self.const_bitcast(llval, llty)
         };
         PlaceRef::new_sized(llval, layout)

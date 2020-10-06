@@ -366,14 +366,17 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
 
         match self.locals[place_ref.local] {
             LocalRef::Operand(Some(mut o)) => {
+                debug!("maybe_codegen_consume_direct LocalRef::Operand(Some)");
                 // Moves out of scalar and scalar pair fields are trivial.
                 for elem in place_ref.projection.iter() {
                     match elem {
                         mir::ProjectionElem::Field(ref f, _) => {
+                            debug!("maybe_codegen_consume_direct: mir::ProjectionElem::Field");
                             o = o.extract_field(bx, f.index());
                         }
                         mir::ProjectionElem::Index(_)
                         | mir::ProjectionElem::ConstantIndex { .. } => {
+                            debug!("maybe_codegen_consume_direct: mir::ProjectionElem::ConstantIndex");
                             // ZSTs don't require any actual memory access.
                             // FIXME(eddyb) deduplicate this with the identical
                             // checks in `codegen_consume` and `extract_field`.
@@ -417,6 +420,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         }
 
         if let Some(o) = self.maybe_codegen_consume_direct(bx, place_ref) {
+            debug!("codegen_consume: returned at maybe_codegen_consume_direct");
             return o;
         }
 

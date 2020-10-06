@@ -536,12 +536,15 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         cleanup: Option<mir::BasicBlock>,
         fn_span: Span,
     ) {
+        debug!("codegen_call_terminator: the very start");
         let span = terminator.source_info.span;
         // Create the callee. This is a fn ptr or zero-sized and hence a kind of scalar.
         let callee = self.codegen_operand(&mut bx, func);
 
         let (instance, mut llfn) = match *callee.layout.ty.kind() {
-            ty::FnDef(def_id, substs) => (
+            ty::FnDef(def_id, substs) => {
+                debug!("codegen_call_terminator: callee is FnDef");
+                (
                 Some(
                     ty::Instance::resolve(bx.tcx(), ty::ParamEnv::reveal_all(), def_id, substs)
                         .unwrap()
@@ -549,8 +552,11 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                         .polymorphize(bx.tcx()),
                 ),
                 None,
-            ),
-            ty::FnPtr(_) => (None, Some(callee.immediate())),
+            )},
+            ty::FnPtr(_) => {
+                debug!("codegen_call_terminator: callee is FnPtr");
+                (None, Some(callee.immediate()))
+            },
             _ => bug!("{} is not callable", callee.layout.ty),
         };
         let def = instance.map(|i| i.def);
@@ -721,7 +727,9 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
             let mut op = self.codegen_operand(&mut bx, arg);
 
             if let (0, Some(ty::InstanceDef::Virtual(_, idx))) = (i, def) {
+                debug!("codegen_call_terminator: ty::InstanceDef::Virtual(_, idx)");
                 if let Pair(..) = op.val {
+                    debug!("codegen_call_terminator: Pair(..) = op.val");
                     // In the case of Rc<Self>, we need to explicitly pass a
                     // *mut RcBox<Self> with a Scalar (not ScalarPair) ABI. This is a hack
                     // that is understood elsewhere in the compiler as a method on
@@ -760,6 +768,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                     }
                 } else if let Ref(data_ptr, Some(meta), _) = op.val {
                     // by-value dynamic dispatch
+                    debug!("codegen_call_terminator: Ref(data_ptr");
                     llfn = Some(meth::VirtualIndex::from_index(idx).get_fn(&mut bx, meta, &fn_abi));
                     llargs.push(data_ptr);
                     continue;
@@ -808,6 +817,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
             let last_arg = fn_abi.args.last().unwrap();
             self.codegen_argument(&mut bx, location, &mut llargs, last_arg);
         }
+        //TODO: manually set fn_ptr to something else
 
         let fn_ptr = match (llfn, instance) {
             (Some(llfn), _) => llfn,

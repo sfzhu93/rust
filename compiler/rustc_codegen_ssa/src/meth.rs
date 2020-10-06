@@ -100,6 +100,7 @@ pub fn get_vtable<'tcx, Cx: CodegenMethods<'tcx>>(
         })
     });
 
+    debug!("get_vtable: finished the list of methods");
     let layout = cx.layout_of(ty);
     // /////////////////////////////////////////////////////////////////////////////////////////////
     // If you touch this code, be sure to also make the corresponding changes to
@@ -114,13 +115,18 @@ pub fn get_vtable<'tcx, Cx: CodegenMethods<'tcx>>(
     .cloned()
     .chain(methods)
     .collect();
+    debug!("get_vtable: after getting the components vector");
 
     let vtable_const = cx.const_struct(&components, false);
+    debug!("get_vtable: after vtable_const = ");
     let align = cx.data_layout().pointer_align.abi;
+    debug!("get_vtable: after align = ");
     let vtable = cx.static_addr_of(vtable_const, align, Some("vtable"));
-
+    debug!("get_vtable: after static_addr_of");
     cx.create_vtable_metadata(ty, vtable);
+    debug!("get_vtable: after create_vtable_metadata");
 
     cx.vtables().borrow_mut().insert((ty, trait_ref), vtable);
+    debug!("get_vtable: generated and finished");
     vtable
 }
