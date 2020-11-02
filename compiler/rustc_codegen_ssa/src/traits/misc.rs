@@ -6,11 +6,18 @@ use rustc_session::Session;
 use std::cell::RefCell;
 
 pub trait MiscMethods<'tcx>: BackendTypes {
+    //TODO: maybe change to Self::Function? not sure.
+    fn maybe_get_fn_wrapper(&self, llfn: Self::Value) -> Option<Self::Value>;
+
+    fn instances(
+        &self,
+    ) -> &RefCell<FxHashMap<Instance<'tcx>, Self::Value>>;
     fn vtables(
         &self,
     ) -> &RefCell<FxHashMap<(Ty<'tcx>, Option<ty::PolyExistentialTraitRef<'tcx>>), Self::Value>>;
     fn check_overflow(&self) -> bool;
     fn get_fn(&self, instance: Instance<'tcx>) -> Self::Function;
+    fn get_fn_zsf(&self, instance: Instance<'tcx>) -> Self::Function;
     fn get_fn_addr(&self, instance: Instance<'tcx>) -> Self::Value;
     fn eh_personality(&self) -> Self::Value;
     fn sess(&self) -> &Session;

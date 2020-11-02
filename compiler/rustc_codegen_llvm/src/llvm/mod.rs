@@ -15,6 +15,7 @@ use std::cell::RefCell;
 use std::ffi::{CStr, CString};
 use std::str::FromStr;
 use std::string::FromUtf8Error;
+use tracing::debug;
 
 pub mod archive_ro;
 pub mod diagnostic;
@@ -228,6 +229,7 @@ pub fn set_alignment(llglobal: &Value, bytes: usize) {
 /// Safe wrapper around `LLVMGetParam`, because segfaults are no fun.
 pub fn get_param(llfn: &Value, index: c_uint) -> &Value {
     unsafe {
+        debug!("get_param: index={:?}, LLVMCountParams(llfn)={:?}", index, LLVMCountParams(llfn));
         assert!(
             index < LLVMCountParams(llfn),
             "out of bounds argument access: {} out of {} arguments",

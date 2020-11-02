@@ -38,7 +38,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                     }
                     err
                 }),
-            ty::ConstKind::Value(value) => Ok(value),
+            ty::ConstKind::Value(value) => {debug!("eval_mir_constant: ConstKind::Value");Ok(value)},
             err => span_bug!(
                 constant.span,
                 "encountered bad ConstKind after monomorphizing: {:?}",

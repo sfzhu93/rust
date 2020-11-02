@@ -1252,6 +1252,15 @@ impl<'tcx> TyCtxt<'tcx> {
         }
     }
 
+    pub fn find_crate_name(self, def_id: DefId) -> String {
+        let crate_name = if def_id.is_local() {
+            self.crate_name
+        } else {
+            self.cstore.crate_name_untracked(def_id.krate)
+        };
+        format!("{}", crate_name)
+    }
+
     pub fn def_path_debug_str(self, def_id: DefId) -> String {
         // We are explicitly not going through queries here in order to get
         // crate name and disambiguator since this code is called from debug!()

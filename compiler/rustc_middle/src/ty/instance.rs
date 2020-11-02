@@ -339,14 +339,17 @@ impl<'tcx> Instance<'tcx> {
         // HACK(eddyb) erase regions in `substs` first, so that `param_env.and(...)`
         // below is more likely to ignore the bounds in scope (e.g. if the only
         // generic parameters mentioned by `substs` were lifetime ones).
+        debug!("resolve_opt_const_arg: before erase regions, substs={:?}", substs);
         let substs = tcx.erase_regions(&substs);
-
+        debug!("resolve_opt_const_arg: after erase regions, substs={:?}", substs);
         // FIXME(eddyb) should this always use `param_env.with_reveal_all()`?
         if let Some((did, param_did)) = def.as_const_arg() {
+            debug!("resolve_opt_const_arg: first branch");
             tcx.resolve_instance_of_const_arg(
                 tcx.erase_regions(&param_env.and((did, param_did, substs))),
             )
         } else {
+            debug!("resolve_opt_const_arg: 2nd branch");
             tcx.resolve_instance(tcx.erase_regions(&param_env.and((def.did, substs))))
         }
     }

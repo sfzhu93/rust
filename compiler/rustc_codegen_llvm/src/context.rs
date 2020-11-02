@@ -23,6 +23,7 @@ use rustc_span::source_map::{Span, DUMMY_SP};
 use rustc_span::symbol::Symbol;
 use rustc_target::abi::{HasDataLayout, LayoutOf, PointeeInfo, Size, TargetDataLayout, VariantIdx};
 use rustc_target::spec::{HasTargetSpec, RelocModel, Target, TlsModel};
+//use tracing::debug;
 
 use std::cell::{Cell, RefCell};
 use std::ffi::CStr;
@@ -41,8 +42,10 @@ pub struct CodegenCx<'ll, 'tcx> {
     pub llcx: &'ll llvm::Context,
     pub codegen_unit: &'tcx CodegenUnit<'tcx>,
 
+    pub wrapper_funcs: RefCell<FxHashMap<&'ll Value, &'ll Value>>,
     /// Cache instances of monomorphic and polymorphic items
     pub instances: RefCell<FxHashMap<Instance<'tcx>, &'ll Value>>,
+    pub instances_zsf: RefCell<FxHashMap<Instance<'tcx>, &'ll Value>>,
     /// Cache generated vtables
     pub vtables:
         RefCell<FxHashMap<(Ty<'tcx>, Option<ty::PolyExistentialTraitRef<'tcx>>), &'ll Value>>,
@@ -298,7 +301,9 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
             llmod,
             llcx,
             codegen_unit,
+            wrapper_funcs: Default::default(),
             instances: Default::default(),
+            instances_zsf: Default::default(),
             vtables: Default::default(),
             const_cstr_cache: Default::default(),
             const_unsized: Default::default(),
@@ -330,11 +335,34 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
 }
 
 impl MiscMethods<'tcx> for CodegenCx<'ll, 'tcx> {
+    fn maybe_get_fn_wrapper(&self, llfn: &'ll Value) -> Option<&'ll Value> {
+        if let Some(retllfn) = self.wrapper_funcs.borrow().get(llfn) {
+            Some(*retllfn)
+        } else {
+            None
+        }
+    }
+
+    fn instances(
+        &self,
+    ) -> &RefCell<FxHashMap<Instance<'tcx>, &'ll Value>>
+    {
+        &self.instances
+    }
+
     fn vtables(
         &self,
     ) -> &RefCell<FxHashMap<(Ty<'tcx>, Option<ty::PolyExistentialTraitRef<'tcx>>), &'ll Value>>
     {
         &self.vtables
+    }
+
+    fn get_fn_zsf(&self, instance: Instance<'tcx>) -> &'ll Value {
+        //we are copying code from get_fn from callee.rs.
+        if let Some(&llfn) = self.instances_zsf.borrow().get(&instance){
+            return llfn;
+        }
+        get_fn(self, instance)
     }
 
     fn get_fn(&self, instance: Instance<'tcx>) -> &'ll Value {

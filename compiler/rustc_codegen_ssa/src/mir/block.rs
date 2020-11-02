@@ -539,26 +539,38 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         debug!("codegen_call_terminator: the very start");
         let span = terminator.source_info.span;
         // Create the callee. This is a fn ptr or zero-sized and hence a kind of scalar.
-        let callee = self.codegen_operand(&mut bx, func);
-
+        let callee = self.codegen_operand(&mut bx, func);//TODO: figure out its inside
+        debug!("codegen_call_terminator: callee={:?}", callee);
         let (instance, mut llfn) = match *callee.layout.ty.kind() {
             ty::FnDef(def_id, substs) => {
                 debug!("codegen_call_terminator: callee is FnDef");
+                debug!("codegen_call_terminator: callee.layout.ty={:?}", callee.layout.ty);
+                if let Some(..) = bx.tcx().trait_of_item(def_id) {
+                    debug!("codegen_call_terminator: associated type.");
+                }
+                if substs.len() > 0 {
+                    debug!("codegen_call_terminator: the callee should be a generic function");
+                    debug!("codegen_call_terminator: defid={:?}", def_id);
+                }
                 (
-                Some(
-                    ty::Instance::resolve(bx.tcx(), ty::ParamEnv::reveal_all(), def_id, substs)
-                        .unwrap()
-                        .unwrap()
-                        .polymorphize(bx.tcx()),
-                ),
-                None,
-            )},
+                    Some(
+                        ty::Instance::resolve(bx.tcx(), ty::ParamEnv::reveal_all(), def_id, substs)
+                            .unwrap()
+                            .unwrap()
+                            .polymorphize(bx.tcx()),
+                    ),//here do the opaque type/existential type thing
+                    None,
+                )
+            },
             ty::FnPtr(_) => {
                 debug!("codegen_call_terminator: callee is FnPtr");
                 (None, Some(callee.immediate()))
             },
             _ => bug!("{} is not callable", callee.layout.ty),
         };
+        debug!("codegen_call_terminator: instance={:?}", instance);
+        //instance.substs = []
+        //debug!("codegen_call_terminator: llfn={:?}", llfn);
         let def = instance.map(|i| i.def);
 
         if let Some(ty::InstanceDef::DropGlue(_, None)) = def {
@@ -819,12 +831,66 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         }
         //TODO: manually set fn_ptr to something else
 
-        let fn_ptr = match (llfn, instance) {
-            (Some(llfn), _) => llfn,
-            (None, Some(instance)) => bx.get_fn_addr(instance),
-            _ => span_bug!(span, "no llfn for call"),
-        };
+        fn _find_arith_add<Bx: BuilderMethods<'a, 'tcx>>(bx: &Bx) -> Option<<Bx as BackendTypes>::Value> {
+            let _tcx = bx.tcx();
+            let instances = bx.instances();
+            for (_ins, _sym) in instances.borrow().iter() {
+                //debug!("{:?}", _tcx.symbol_name(*_ins));
+                let sym_name = _tcx.symbol_name(*_ins).name;
+                if sym_name.contains("ops..arith..Add") {
+                    return Some(bx.get_fn_addr(*_ins))
+                }
+                //TODO: find pattern in the symbol name and return the _sym
+            }
+            return None
+        }
 
+        let fn_ptr = match (llfn, instance) {
+                (Some(llfn), _) => llfn,
+                (None, Some(instance)) => {
+                    let theret = bx.get_fn_addr(instance);
+                    //debug!("codegen_call_terminator: let's see what happened in between: bx.get_fn_addr");
+                    theret
+                },
+                _ => span_bug!(span, "no llfn for call"),
+        };
+        /*if self._in_add_test_special_case {
+            let vtable_param = bx.get_param(2);
+            if let Some(llfnptr) = _find_arith_add(&bx) {
+                llfnptr
+                /*TODO: (1) get a general wrapper function signature for an llvm typecast here.
+                In order to do so, find/make a trait for codegencx and put the implementations
+                in rustc_codegen_llvm. Don't expose more functions on _ssa traits here.
+                For each subst type, there should be a "trait" and we use the signature.
+                But the signature could be an LLVM `Value`.
+                (2) then, re-implement helper.do_call to use the wrapper directly instead of from
+                `fn_sigs`.
+
+                */
+            }
+            //TODO: make our own vtable system targeting llvm directly
+            //meth::VirtualIndex::from_index(3).get_fn(&mut bx, vtable_param, &fn_abi)//TODO: fn_abi?
+            //TODO: make it general here
+        } else {*/
+
+        /*if self._in_add_test_special_case {
+            let _llret = bx.call(fn_ptr, &llargs, None);
+            return;
+        }*/
+
+        //put them into another special case which is the main function
+        /*if self._in_add_test_special_case {
+            debug!("codegen_call_terminator: bx.instances=");//{:?}", bx.instances());//why cannot compile!?");//, bx.instances);
+            if let Some(llfnptr) = find_arith_add(&bx) {
+                if let Some(gv) = bx.define_global("zsf_vtable_0", bx.val_ty(llfnptr)) {
+                    //TODO: use an auto naming API
+                    llargs.push(gv);
+                    debug!("codegen_call_terminator: define_global succeed");
+                }
+            }
+        }*/
+
+        debug!("codegen_call_terminator: fn_ptr={:?}", fn_ptr);
         if let Some((_, target)) = destination.as_ref() {
             helper.maybe_sideeffect(self.mir, &mut bx, &[*target]);
         }
@@ -1030,6 +1096,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                 from_hir_call: _,
                 fn_span,
             } => {
+                //TODO: match self symbol name.
                 self.codegen_call_terminator(
                     helper,
                     bx,

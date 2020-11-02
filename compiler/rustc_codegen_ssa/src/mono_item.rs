@@ -39,6 +39,11 @@ impl<'a, 'tcx: 'a> MonoItemExt<'a, 'tcx> for MonoItem<'tcx> {
                 }
             }
             MonoItem::Fn(instance) => {
+                if self.symbol_name(cx.tcx()).name.contains("8add_test17") {
+                    base::codegen_instance_zsf::<Bx>(&cx, instance);
+                    //add special case here
+                    //remember to
+                }
                 base::codegen_instance::<Bx>(&cx, instance);
             }
         }

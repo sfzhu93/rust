@@ -84,6 +84,8 @@ pub struct FunctionCx<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> {
 
     /// Caller location propagated if this function has `#[track_caller]`.
     caller_location: Option<OperandRef<'tcx, Bx::Value>>,
+    _in_add_test_special_case: bool,
+    //_need_change_call_to_vtable: bool,
 }
 
 impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
@@ -172,6 +174,7 @@ pub fn codegen_mir<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
         .collect();
 
     let (landing_pads, funclets) = create_funclets(&mir, &mut bx, &cleanup_kinds, &block_bxs);
+    //let in_special_case = instance.
     let mut fx = FunctionCx {
         instance,
         mir,
@@ -188,6 +191,151 @@ pub fn codegen_mir<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
         debug_context,
         per_local_var_debug_info: None,
         caller_location: None,
+        _in_add_test_special_case: false
+    };
+
+    fx.per_local_var_debug_info = fx.compute_per_local_var_debug_info();
+
+    for const_ in &mir.required_consts {
+        if let Err(err) = fx.eval_mir_constant(const_) {
+            match err {
+                // errored or at least linted
+                ErrorHandled::Reported(ErrorReported) | ErrorHandled::Linted => {}
+                ErrorHandled::TooGeneric => {
+                    span_bug!(const_.span, "codgen encountered polymorphic constant: {:?}", err)
+                }
+            }
+        }
+    }
+
+    let memory_locals = analyze::non_ssa_locals(&fx);
+
+    // Allocate variable and temp allocas
+    fx.locals = {
+        let args = arg_local_refs(&mut bx, &mut fx, &memory_locals);
+
+        let mut allocate_local = |local| {
+            let decl = &mir.local_decls[local];
+            let layout = bx.layout_of(fx.monomorphize(&decl.ty));
+            assert!(!layout.ty.has_erasable_regions());
+
+            if local == mir::RETURN_PLACE && fx.fn_abi.ret.is_indirect() {
+                debug!("alloc: {:?} (return place) -> place", local);
+                let llretptr = bx.get_param(0);
+                return LocalRef::Place(PlaceRef::new_sized(llretptr, layout));
+            }
+
+            if memory_locals.contains(local) {
+                debug!("alloc: {:?} -> place", local);
+                if layout.is_unsized() {
+                    LocalRef::UnsizedPlace(PlaceRef::alloca_unsized_indirect(&mut bx, layout))
+                } else {
+                    LocalRef::Place(PlaceRef::alloca(&mut bx, layout))
+                }
+            } else {
+                debug!("alloc: {:?} -> operand", local);
+                LocalRef::new_operand(&mut bx, layout)
+            }
+        };
+
+        let retptr = allocate_local(mir::RETURN_PLACE);
+        iter::once(retptr)
+            .chain(args.into_iter())
+            .chain(mir.vars_and_temps_iter().map(allocate_local))
+            .collect()
+    };
+
+    // Apply debuginfo to the newly allocated locals.
+    fx.debug_introduce_locals(&mut bx);
+
+    // Branch to the START block, if it's not the entry block.
+    if reentrant_start_block {
+        bx.br(fx.blocks[mir::START_BLOCK]);
+    }
+
+    let rpo = traversal::reverse_postorder(&mir);
+    let mut visited = BitSet::new_empty(mir.basic_blocks().len());
+
+    // Codegen the body of each block using reverse postorder
+    for (bb, _) in rpo {
+        visited.insert(bb.index());
+        fx.codegen_block(bb);
+    }
+
+    // Remove blocks that haven't been visited, or have no
+    // predecessors.
+    for bb in mir.basic_blocks().indices() {
+        // Unreachable block
+        if !visited.contains(bb.index()) {
+            debug!("codegen_mir: block {:?} was not visited", bb);
+            unsafe {
+                bx.delete_basic_block(fx.blocks[bb]);
+            }
+        }
+    }
+}
+
+pub fn codegen_mir_zsf<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
+    cx: &'a Bx::CodegenCx,
+    instance: Instance<'tcx>,
+) {
+    assert!(!instance.substs.needs_infer());
+
+    let llfn = cx.get_fn_zsf(instance);
+    //TODO: find the correct one with changed func name
+    //Should look for an alternative data structure for function copies when looking for
+    //cx.instances
+
+    let mir = cx.tcx().instance_mir(instance.def);
+
+    let fn_abi = FnAbi::of_instance_zsf(cx, instance, &[]);
+    debug!("fn_abi: {:?}", fn_abi);
+
+    let debug_context = cx.create_function_debug_context(instance, &fn_abi, llfn, &mir);
+
+    let mut bx = Bx::new_block(cx, llfn, "start");
+
+    if mir.basic_blocks().iter().any(|bb| bb.is_cleanup) {
+        bx.set_personality_fn(cx.eh_personality());
+    }
+
+    bx.sideeffect();
+
+    let cleanup_kinds = analyze::cleanup_kinds(&mir);
+    // Allocate a `Block` for every basic block, except
+    // the start block, if nothing loops back to it.
+    let reentrant_start_block = !mir.predecessors()[mir::START_BLOCK].is_empty();
+    let block_bxs: IndexVec<mir::BasicBlock, Bx::BasicBlock> = mir
+        .basic_blocks()
+        .indices()
+        .map(|bb| {
+            if bb == mir::START_BLOCK && !reentrant_start_block {
+                bx.llbb()
+            } else {
+                bx.build_sibling_block(&format!("{:?}", bb)).llbb()
+            }
+        })
+        .collect();
+
+    let (landing_pads, funclets) = create_funclets(&mir, &mut bx, &cleanup_kinds, &block_bxs);
+    //let in_special_case = instance.
+    let mut fx = FunctionCx {
+        instance,
+        mir,
+        llfn,
+        fn_abi,
+        cx,
+        personality_slot: None,
+        blocks: block_bxs,
+        unreachable_block: None,
+        cleanup_kinds,
+        landing_pads,
+        funclets,
+        locals: IndexVec::new(),
+        debug_context,
+        per_local_var_debug_info: None,
+        caller_location: None,
+        _in_add_test_special_case: true
     };
 
     fx.per_local_var_debug_info = fx.compute_per_local_var_debug_info();

@@ -2510,12 +2510,12 @@ where
         debug!("of_instance: sig.inputs()={:?}", sig.inputs()); //TODO: find out how to use binders correctly
         fn wrap_with_pointer<'a>(tcx: TyCtxt<'a>, sig: PolyFnSig<'a>) -> PolyFnSig<'a> {
             let param_list = sig.inputs_and_output();
-            debug!("of_instance: wrap_with_pointer: {:?}", param_list);
+            debug!("of_instance: wrap_with_pointer: {:?}", param_list);//TODO: use types in subst to match up
             sig.map_bound(|inner| {
                 let ret_list = inner.inputs_and_output.iter().map(|x|{
                     debug!("of_instance: wrap_with_pointer: map_bound: {:?}", x);
                     match x.kind() {
-                        ty::Int(..) => {
+                        ty::Int(..)|ty::Float(..) => {
                             tcx.mk_ty(ty::RawPtr(TypeAndMut { ty: &x, mutbl: Mutability::Not }))
                         },
                         _ => x

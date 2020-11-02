@@ -363,6 +363,19 @@ pub fn codegen_instance<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>>(
     mir::codegen_mir::<Bx>(cx, instance);
 }
 
+pub fn codegen_instance_zsf<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>>(
+    cx: &'a Bx::CodegenCx,
+    instance: Instance<'tcx>,
+) {
+    // this is an info! to allow collecting monomorphization statistics
+    // and to allow finding the last function before LLVM aborts from
+    // release builds.
+    info!("codegen_instance_zsf({})", instance);
+
+    mir::codegen_mir_zsf::<Bx>(cx, instance);
+
+}
+
 /// Creates the `main` function which will initialize the rust runtime and call
 /// users main function.
 pub fn maybe_create_entry_wrapper<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(

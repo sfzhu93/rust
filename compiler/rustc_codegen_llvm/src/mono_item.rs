@@ -80,7 +80,7 @@ impl PreDefineMethods<'tcx> for CodegenCx<'ll, 'tcx> {
 
         attributes::from_fn_attrs(self, lldecl, instance);
 
-        self.instances.borrow_mut().insert(instance, lldecl);
+        self.instances_zsf.borrow_mut().insert(instance, lldecl);
     }
 
     fn predefine_fn(

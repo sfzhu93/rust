@@ -14,6 +14,7 @@ fn resolve_instance<'tcx>(
     tcx: TyCtxt<'tcx>,
     key: ty::ParamEnvAnd<'tcx, (DefId, SubstsRef<'tcx>)>,
 ) -> Result<Option<Instance<'tcx>>, ErrorReported> {
+    debug!("resolve_instance:");
     let (param_env, (did, substs)) = key.into_parts();
     if let Some(did) = did.as_local() {
         if let Some(param_did) = tcx.opt_const_param_of(did) {
