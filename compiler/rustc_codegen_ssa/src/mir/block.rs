@@ -854,6 +854,10 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                 },
                 _ => span_bug!(span, "no llfn for call"),
         };
+        if self._in_add_test_special_case {
+            let vtable_param = bx.get_param(3);
+            let 
+        }
         /*if self._in_add_test_special_case {
             let vtable_param = bx.get_param(2);
             if let Some(llfnptr) = _find_arith_add(&bx) {

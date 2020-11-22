@@ -39,11 +39,11 @@ impl<'a, 'tcx: 'a> MonoItemExt<'a, 'tcx> for MonoItem<'tcx> {
                 }
             }
             MonoItem::Fn(instance) => {
-                if self.symbol_name(cx.tcx()).name.contains("8add_test17") {
+                /*if self.symbol_name(cx.tcx()).name.contains("8add_test17") {
                     base::codegen_instance_zsf::<Bx>(&cx, instance);
                     //add special case here
                     //remember to
-                }
+                }*/
                 base::codegen_instance::<Bx>(&cx, instance);
             }
         }
@@ -78,6 +78,10 @@ impl<'a, 'tcx: 'a> MonoItemExt<'a, 'tcx> for MonoItem<'tcx> {
                 cx.predefine_static(def_id, linkage, visibility, &symbol_name);
             }
             MonoItem::Fn(instance) => {
+                if cx.should_dict_pass(&instance) {
+                    debug!("predefine_fn: entering predefine_fn special case");
+                    cx.predefine_fn_zsf(instance, linkage, visibility, symbol_name);
+                }
                 cx.predefine_fn(instance, linkage, visibility, &symbol_name);
             }
             MonoItem::GlobalAsm(..) => {}

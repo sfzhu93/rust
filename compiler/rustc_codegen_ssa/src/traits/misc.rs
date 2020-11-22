@@ -8,7 +8,7 @@ use std::cell::RefCell;
 pub trait MiscMethods<'tcx>: BackendTypes {
     //TODO: maybe change to Self::Function? not sure.
     fn maybe_get_fn_wrapper(&self, llfn: Self::Value) -> Option<Self::Value>;
-
+    fn should_dict_pass(&self, instance: &Instance<'tcx>) -> bool;
     fn instances(
         &self,
     ) -> &RefCell<FxHashMap<Instance<'tcx>, Self::Value>>;

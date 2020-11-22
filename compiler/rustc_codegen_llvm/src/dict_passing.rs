@@ -21,9 +21,10 @@ fn make_func_wrapper_for_llfn(
     //We only find the number of params, and generate void * params,
     //as we don't have an FFI API to get the return value of a function.
     //When the wrapped function is void?
-    //consider add LLVMGetReturnType in llvm/lib/IR/Core.cpp to ffi
+    //consider add LLVMGetReturnType in llvm-project/llvm/include/llvm-c/Core.h to ffi
 
     let n_params = unsafe { llvm::LLVMCountParams(callee) } as usize;
+
     let mut wrapper_param_types = Vec::with_capacity(n_params + 1);
     let mut callee_type = common::val_ty(callee);
     while cx.type_kind(callee_type) == rustc_codegen_ssa::common::TypeKind::Pointer {
@@ -31,6 +32,8 @@ fn make_func_wrapper_for_llfn(
     }//copied from check_call
 
     debug!("make_func_wrapper_for_llfn: callee_type={:?}", callee_type);
+    let callee_ret_type = unsafe{ llvm::LLVMGetReturnType(callee_type)};
+    debug!("make_func_wrapper_for_llfn: callee_ret_type={:?}", callee_ret_type);
     let wrappee_param_types = cx.func_params_types(callee_type);
     for _ in 0..(n_params + 1) {
         wrapper_param_types.push(cx.type_ptr_to(cx.type_i8()));
@@ -200,7 +203,8 @@ pub(crate) fn gen_fn2trait_impl_instances(cx: &CodegenCx<'ll, 'tcx>) {
             );
             if let rustc_middle::ty::FnDef(def_id, subst) = subst_ty.kind() {
                 if let Some(..) = tcx.trait_of_item(*def_id) {
-                    let op_instance = rustc_middle::ty::Instance::resolve(tcx, rustc_middle::ty::ParamEnv::reveal_all(), *def_id, substs)
+                    debug!("gen_fn2trait_impl_instances: before resolving: {:?}, {:?}, {:?}", instance.def, def_id, subst);
+                    let op_instance = rustc_middle::ty::Instance::resolve(tcx, rustc_middle::ty::ParamEnv::reveal_all(), *def_id, subst)
                         .unwrap()
                         .unwrap()
                         .polymorphize(tcx);
@@ -208,7 +212,7 @@ pub(crate) fn gen_fn2trait_impl_instances(cx: &CodegenCx<'ll, 'tcx>) {
                         .or_insert(FxHashSet::default()).insert(op_instance);
                     type2trait_impl_instances.entry(subst)
                         .or_insert(FxHashSet::default()).insert(op_instance);
-                    debug!("gen_fn2trait_impl_instances: {:?}, {:?}, {:?}", instance.def, def_id, subst);
+                    debug!("gen_fn2trait_impl_instances: after resolving: {:?}, {:?}, {:?}", instance.def, def_id, subst);
                 }
             }
         }

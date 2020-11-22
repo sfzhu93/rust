@@ -42,6 +42,7 @@ pub fn non_ssa_locals<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
             analyzer.not_ssa(local);
         }
     }
+    debug!("end of non_ssa_locals");
 
     analyzer.non_ssa_locals
 }

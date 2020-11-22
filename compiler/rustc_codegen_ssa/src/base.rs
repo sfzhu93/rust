@@ -359,7 +359,9 @@ pub fn codegen_instance<'a, 'tcx: 'a, Bx: BuilderMethods<'a, 'tcx>>(
     // and to allow finding the last function before LLVM aborts from
     // release builds.
     info!("codegen_instance({})", instance);
-
+    if cx.should_dict_pass(&instance) {
+        mir::codegen_mir_zsf::<Bx>(cx, instance);
+    }
     mir::codegen_mir::<Bx>(cx, instance);
 }
 

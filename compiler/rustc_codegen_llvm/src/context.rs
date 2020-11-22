@@ -11,12 +11,12 @@ use rustc_codegen_ssa::base::wants_msvc_seh;
 use rustc_codegen_ssa::traits::*;
 use rustc_data_structures::base_n;
 use rustc_data_structures::const_cstr;
-use rustc_data_structures::fx::FxHashMap;
+use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use rustc_data_structures::small_c_str::SmallCStr;
 use rustc_middle::bug;
 use rustc_middle::mir::mono::CodegenUnit;
 use rustc_middle::ty::layout::{HasParamEnv, LayoutError, TyAndLayout};
-use rustc_middle::ty::{self, Instance, Ty, TyCtxt};
+use rustc_middle::ty::{self, Instance, Ty, TyCtxt, InstanceDef};
 use rustc_session::config::{CFGuard, CrateType, DebugInfo};
 use rustc_session::Session;
 use rustc_span::source_map::{Span, DUMMY_SP};
@@ -28,6 +28,7 @@ use rustc_target::spec::{HasTargetSpec, RelocModel, Target, TlsModel};
 use std::cell::{Cell, RefCell};
 use std::ffi::CStr;
 use std::str;
+use rustc_middle::ty::subst::SubstsRef;
 
 /// There is one `CodegenCx` per compilation unit. Each one has its own LLVM
 /// `llvm::Context` so that several compilation units may be optimized in parallel.
@@ -43,6 +44,9 @@ pub struct CodegenCx<'ll, 'tcx> {
     pub codegen_unit: &'tcx CodegenUnit<'tcx>,
 
     pub wrapper_funcs: RefCell<FxHashMap<&'ll Value, &'ll Value>>,
+    pub fn2types: RefCell<FxHashMap<InstanceDef<'tcx>, Vec<SubstsRef<'tcx>>>>,
+    pub inst2trait_impl_instances: RefCell<FxHashMap<Instance<'tcx>, FxHashSet<Instance<'tcx>>>>,
+    pub type2trait_impl_instances: RefCell<FxHashMap<SubstsRef<'tcx>, FxHashSet<Instance<'tcx>>>>,
     /// Cache instances of monomorphic and polymorphic items
     pub instances: RefCell<FxHashMap<Instance<'tcx>, &'ll Value>>,
     pub instances_zsf: RefCell<FxHashMap<Instance<'tcx>, &'ll Value>>,
@@ -302,6 +306,9 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
             llcx,
             codegen_unit,
             wrapper_funcs: Default::default(),
+            fn2types: RefCell::new(Default::default()),
+            inst2trait_impl_instances: RefCell::new(Default::default()),
+            type2trait_impl_instances: RefCell::new(Default::default()),
             instances: Default::default(),
             instances_zsf: Default::default(),
             vtables: Default::default(),
@@ -340,6 +347,14 @@ impl MiscMethods<'tcx> for CodegenCx<'ll, 'tcx> {
             Some(*retllfn)
         } else {
             None
+        }
+    }
+
+    fn should_dict_pass(&self, inst: &Instance<'tcx>) -> bool {
+        if self.inst2trait_impl_instances.borrow().contains_key(&inst) {
+            true
+        } else {
+            false
         }
     }
 

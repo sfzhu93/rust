@@ -927,6 +927,7 @@ extern "C" {
         ParamCount: c_uint,
         IsVarArg: Bool,
     ) -> &'a Type;
+    pub fn LLVMGetReturnType(FunctionTy: &'a Type) -> &'a Type;
     pub fn LLVMCountParamTypes(FunctionTy: &Type) -> c_uint;
     pub fn LLVMGetParamTypes(FunctionTy: &'a Type, Dest: *mut &'a Type);
 

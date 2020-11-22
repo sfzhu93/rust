@@ -75,6 +75,7 @@ mod type_of;
 mod va_arg;
 mod value;
 mod pointer_wrap;
+mod dict_passing;
 
 #[derive(Clone)]
 pub struct LlvmCodegenBackend(());

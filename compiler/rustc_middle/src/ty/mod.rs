@@ -116,7 +116,7 @@ pub mod walk;
 mod consts;
 mod context;
 mod diagnostics;
-mod instance;
+pub mod instance;
 mod list;
 mod structural_impls;
 mod sty;

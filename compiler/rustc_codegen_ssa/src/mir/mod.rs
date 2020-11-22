@@ -288,7 +288,7 @@ pub fn codegen_mir_zsf<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
 
     let mir = cx.tcx().instance_mir(instance.def);
 
-    let fn_abi = FnAbi::of_instance_zsf(cx, instance, &[]);
+    let fn_abi = FnAbi::of_instance(cx, instance, &[]);
     debug!("fn_abi: {:?}", fn_abi);
 
     let debug_context = cx.create_function_debug_context(instance, &fn_abi, llfn, &mir);
@@ -383,12 +383,22 @@ pub fn codegen_mir_zsf<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
         };
 
         let retptr = allocate_local(mir::RETURN_PLACE);
-        iter::once(retptr)
+        let ret = iter::once(retptr)
             .chain(args.into_iter())
             .chain(mir.vars_and_temps_iter().map(allocate_local))
-            .collect()
+            .collect();
+        ret
     };
-
+    for local_var in fx.locals.iter() {
+        match local_var {
+            LocalRef::Place(r) =>
+                debug!("codegen_mir_zsf: local_var=Place({:?})", r),
+            LocalRef::UnsizedPlace(r) =>
+                debug!("codegen_mir_zsf: local_var=UnsizedPlace({:?})", r),
+            LocalRef::Operand(r) =>
+                debug!("codegen_mir_zsf: local_var=Operand({:?})", r)
+        }
+    }
     // Apply debuginfo to the newly allocated locals.
     fx.debug_introduce_locals(&mut bx);
 
@@ -561,6 +571,7 @@ fn arg_local_refs<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
                         return local(OperandRef::new_zst(bx, arg.layout));
                     }
                     PassMode::Direct(_) => {
+                        debug!("PassMode::Direct");
                         let llarg = bx.get_param(llarg_idx);
                         llarg_idx += 1;
                         return local(OperandRef::from_immediate_or_packed_pair(
